@@ -12,9 +12,11 @@ const pool = mysql.createPool({
   connectionLimit: 5,
   queueLimit: 0,
   connectTimeout: 60000,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  // MYSQL_SSL=false untuk MySQL yang tidak mendukung SSL (mis. MySQL bawaan cPanel)
+  ssl:
+    process.env.MYSQL_SSL === "false"
+      ? undefined
+      : { rejectUnauthorized: false },
 });
 
 export default pool;

@@ -1,5 +1,4 @@
 import express from "express";
-import uploadMiddleware from "../middleware/upload.js";
 import {
   createSatpam,
   deleteSatpam,
@@ -11,7 +10,7 @@ const router = express.Router();
 
 router.get("/satpam", getAllSatpam);
 router.get("/satpam/:id", getSatpamById);
-router.post("/satpam", uploadMiddleware, createSatpam);
-router.delete("/satpam/:id", uploadMiddleware, deleteSatpam);
+router.post("/satpam", createSatpam);
+router.delete("/satpam/:id", deleteSatpam);
 
 export default router;

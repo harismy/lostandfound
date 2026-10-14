@@ -1,4 +1,3 @@
-import cloudinary from "../config/cloudinary.js";
 import {
   createKonfirmasiModel,
   getAllKonfirmasiBarangModel,
@@ -6,34 +5,7 @@ import {
 } from "../model/konfirmasi.js";
 import { getBarangByIdModel, updateBarangModel } from "../model/barang.js";
 import { getSatpamByIdModel } from "../model/satpam.js";
-
-const uploadToCloudinary = async (input) => {
-  const uploadSingle = (buffer) =>
-    new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: "lost_and_found_konfirmasi" },
-        (error, result) => {
-          if (error) return reject(error);
-          resolve(result.secure_url);
-        }
-      );
-      stream.end(buffer);
-    });
-
-  if (!input) return null;
-
-  // Handle Multiple Files
-  if (Array.isArray(input)) {
-    const buffers = input.map((f) => (f && f.buffer ? f.buffer : f));
-    const urls = await Promise.all(buffers.map((b) => uploadSingle(b)));
-    return urls;
-  }
-
-  // Single File
-  const buffer = input && input.buffer ? input.buffer : input;
-  const url = await uploadSingle(buffer);
-  return url;
-};
+import { parsePhotoUrls } from "../utils/cloudinary.js";
 
 // --- Main Controller ---
 export const getAllKonfirmasiBarang = async (req, res) => {
@@ -110,12 +82,14 @@ export const createKonfirmasi = async (req, res) => {
       });
     }
 
-    let fotoUrls = [];
-    if (req.files && req.files.length > 0) {
-      console.log(`Mengupload ${req.files.length} bukti foto...`);
-      const uploadResult = await uploadToCloudinary(req.files);
-      fotoUrls = Array.isArray(uploadResult) ? uploadResult : [uploadResult];
-    } else {
+    // Foto sudah di-upload frontend ke Cloudinary, yang dikirim ke sini hanya URL-nya
+    const fotoUrls = parsePhotoUrls(data.foto, "konfirmasi");
+    if (!fotoUrls) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "Foto tidak valid." });
+    }
+    if (fotoUrls.length === 0) {
       return res.status(400).json({
         status: "error",
         message: "Foto bukti pengambilan wajib diupload.",

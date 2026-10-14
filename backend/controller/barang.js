@@ -1,4 +1,3 @@
-import cloudinary from "../config/cloudinary.js";
 import {
   createBarangModel,
   getAllBarangModel,
@@ -6,45 +5,7 @@ import {
   updateBarangModel,
 } from "../model/barang.js";
 import db from "../config/database.js";
-
-const uploadToCloudinary = async (input) => {
-  const uploadSingle = (buffer) =>
-    new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: "lost_and_found_uts" },
-        (error, result) => {
-          if (error) return reject(error);
-          resolve(result.secure_url);
-        }
-      );
-      stream.end(buffer);
-    });
-
-  if (!input) return null;
-
-  if (Array.isArray(input)) {
-    const buffers = input.map((f) => (f && f.buffer ? f.buffer : f));
-    const urls = await Promise.all(buffers.map((b) => uploadSingle(b)));
-    return urls;
-  }
-
-  const buffer = input && input.buffer ? input.buffer : input;
-  const url = await uploadSingle(buffer);
-  return url;
-};
-
-const getPublicIdFromUrl = (url) => {
-  try {
-    const parts = url.split("/");
-    const fileNameWithExt = parts[parts.length - 1];
-    const publicId = fileNameWithExt.split(".")[0];
-
-    return `lost_and_found_uts/${publicId}`;
-  } catch (error) {
-    console.warn("Gagal parse public_id dari URL:", url, error);
-    return null;
-  }
-};
+import { deletePhotos, parsePhotoUrls } from "../utils/cloudinary.js";
 
 export const perpanjangExp = async (req, res) => {
   const { id } = req.params;
@@ -180,18 +141,12 @@ export const createBarang = async (req, res) => {
     const userId = req.user;
     const data = req.body;
 
-    let fotoUrls = [];
-
-    if (req.files && req.files.length > 0) {
-      console.log(`Uploading ${req.files.length} files to Cloudinary...`);
-      const uploadResult = await uploadToCloudinary(req.files);
-
-      fotoUrls = Array.isArray(uploadResult) ? uploadResult : [uploadResult];
-
-      console.log("Upload success:", fotoUrls);
-    } else if (req.file) {
-      const url = await uploadToCloudinary(req.file.buffer);
-      fotoUrls = [url];
+    // Foto sudah di-upload frontend ke Cloudinary, yang dikirim ke sini hanya URL-nya
+    const fotoUrls = parsePhotoUrls(data.foto, "barang");
+    if (!fotoUrls) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "Foto tidak valid." });
     }
 
     const fotoString = JSON.stringify(fotoUrls);
@@ -235,19 +190,16 @@ export const updateBarang = async (req, res) => {
 
     let newFotoUrl = barangLama.foto;
 
-    if (req.file) {
-      console.log("File baru terdeteksi, meng-upload ke Cloudinary...");
-      newFotoUrl = await uploadToCloudinary(req.file.buffer);
-
-      if (barangLama.foto) {
-        console.log("Menghapus foto lama dari Cloudinary...");
-        const publicId = getPublicIdFromUrl(barangLama.foto);
-        if (publicId) {
-          cloudinary.uploader
-            .destroy(publicId)
-            .catch((err) => console.error("Gagal hapus foto lama:", err));
-        }
+    if (data.foto !== undefined) {
+      const fotoUrls = parsePhotoUrls(data.foto, "barang");
+      if (!fotoUrls) {
+        return res
+          .status(400)
+          .json({ status: "error", message: "Foto tidak valid." });
       }
+
+      newFotoUrl = JSON.stringify(fotoUrls);
+      await deletePhotos(barangLama.foto, fotoUrls);
     }
 
     const dataLengkap = {
@@ -297,21 +249,7 @@ export const deleteBarang = async (req, res) => {
         .json({ status: "error", message: "Barang tidak ditemukan" });
     }
 
-    if (barang.foto) {
-      const fotos = JSON.parse(barang.foto);
-      const fotoArray = Array.isArray(fotos) ? fotos : [fotos];
-
-      console.log("Menghapus foto dari Cloudinary...");
-      for (const fotoUrl of fotoArray) {
-        const publicId = getPublicIdFromUrl(fotoUrl);
-        if (publicId) {
-          await cloudinary.uploader
-            .destroy(publicId)
-            .catch((err) => console.error("Gagal hapus foto:", err));
-        }
-      }
-      console.log("Foto berhasil dihapus dari Cloudinary.");
-    }
+    await deletePhotos(barang.foto);
 
     const sql = "DELETE FROM Barang WHERE id_barang = ?";
     const [result] = await db.execute(sql, [id_barang]);
