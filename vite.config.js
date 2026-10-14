@@ -11,12 +11,6 @@ const __dirname = dirname(__filename);
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 
-  server: {
-    cors: {
-      origin: "http://my-backend.example.com",
-    },
-  },
-
   resolve: {
     alias: {
       // 2. Definisikan bahwa tanda "@" merujuk ke folder "./src"

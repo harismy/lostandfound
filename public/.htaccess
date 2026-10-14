@@ -1,0 +1,23 @@
+# Ikut tercopy ke dist/ saat build, lalu di-upload ke public_html (Apache/cPanel).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Folder subdomain (mis. public_html/api.postemu.id) berada di dalam public_html,
+  # jadi file ini ikut berlaku untuk subdomain. Berhenti di sini kalau yang diakses
+  # bukan postemu.id, supaya request ke API tidak ikut dibelokkan ke index.html.
+  RewriteCond %{HTTP_HOST} !^(www\.)?postemu\.id$ [NC]
+  RewriteRule ^ - [L]
+
+  # Paksa https dan tanpa www, supaya origin selalu https://postemu.id
+  # (harus sama dengan CLIENT_URL_PROD di backend, kalau tidak kena CORS)
+  RewriteCond %{HTTPS} off [OR]
+  RewriteCond %{HTTP_HOST} ^www\. [NC]
+  RewriteRule ^ https://postemu.id%{REQUEST_URI} [R=301,L]
+
+  # Route React Router (mis. /login) diarahkan ke index.html supaya tidak 404 saat di-refresh
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>

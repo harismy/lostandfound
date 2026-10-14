@@ -1,11 +1,11 @@
-import React from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
 
 const PrivateRoute = () => {
-  const token = localStorage.getItem("token");
+  const { isLoggedIn } = useAuth();
   const location = useLocation();
 
-  if (!token) {
+  if (!isLoggedIn) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

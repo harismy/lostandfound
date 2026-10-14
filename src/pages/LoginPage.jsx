@@ -1,24 +1,19 @@
 import { useForm } from "react-hook-form";
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
-import api from "@/lib/axios";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/card";
-import { Fragment } from "react";
-import MetaData from "@/components/metadata";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Loader2, LockKeyhole, LogIn, Mail } from "lucide-react";
 import { toast } from "sonner";
+import api from "@/lib/axios";
+import { setToken } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
+import AuthLayout from "@/components/layout/AuthLayout";
+import MetaData from "@/components/metadata";
+import { Button } from "@/components/ui/button";
+import { Field, IconInput, PasswordInput } from "@/components/form/Field";
 
-const LoginPage = () => {
+export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const {
     register,
@@ -27,118 +22,66 @@ const LoginPage = () => {
   } = useForm();
 
   const loginMutation = useMutation({
-    mutationFn: async (data) => {
-      const response = await api.post("/login", data);
-      return response.data;
-    },
+    mutationFn: async (data) => (await api.post("/login", data)).data,
     onSuccess: (data) => {
-      localStorage.setItem("token", data.token);
-      toast.success(data.message, {
-        position: "top-center",
-        richColors: true,
-      });
-      navigate("/");
+      setToken(data.token);
+      toast.success(`Halo, ${data.user?.nama_lengkap || "selamat datang"}!`);
+      // Kembali ke halaman yang tadi dibuka sebelum diminta login
+      navigate(location.state?.from?.pathname || "/", { replace: true });
     },
-    onError: (error) => {
-      toast.error(error.response.statusText, {
-        description: error.response.data.message,
-        position: "top-center",
-        richColors: true,
-      });
-    },
+    onError: (error) => toast.error("Gagal masuk", { description: getErrorMessage(error) }),
   });
 
-  const onSubmit = (data) => {
-    loginMutation.mutate(data);
-  };
-
   return (
-    <Fragment>
-      <MetaData
-        title="Login"
-        description="Halaman login untuk Lost & Found KEMA UKRI"
-        image=""
-        url=""
-      />
+    <AuthLayout
+      title="Selamat datang kembali"
+      subtitle="Masuk untuk melaporkan barang atau menghubungi pelapor."
+      footer={
+        <>
+          Belum punya akun?{" "}
+          <Link to="/register" className="font-semibold text-primary hover:underline">
+            Daftar sekarang
+          </Link>
+        </>
+      }
+    >
+      <MetaData title="Masuk" />
 
-      <div className="flex h-screen items-center justify-center bg-gray-100 p-4 font-sora">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-2xl text-center">
-              Lost & Found{" "}
-              <span className="bg-linear-to-r from-red-800 via-red-400  to-red-300/80 bg-clip-text text-transparent">
-                KEMA UKRI
-              </span>
-            </CardTitle>
-            <CardDescription className="text-center">
-              Selamat datang di aplikasi Lost & Found KEMA UKRI Silakan masuk
-              untuk melanjutkan.
-            </CardDescription>
-          </CardHeader>
+      <form onSubmit={handleSubmit((data) => loginMutation.mutate(data))} className="space-y-5">
+        <Field label="Email" htmlFor="email" error={errors.email?.message}>
+          <IconInput
+            id="email"
+            icon={Mail}
+            type="email"
+            autoComplete="email"
+            placeholder="nama@email.com"
+            aria-invalid={!!errors.email}
+            {...register("email", {
+              required: "Email wajib diisi",
+              pattern: { value: /^\S+@\S+$/i, message: "Format email salah" },
+            })}
+          />
+        </Field>
 
-          <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="nama-elu@lostandfound.com"
-                  {...register("email", {
-                    required: "Email wajib diisi",
-                    pattern: {
-                      value: /^\S+@\S+$/i,
-                      message: "Format email salah",
-                    },
-                  })}
-                />
-                {errors.email && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.email.message}
-                  </p>
-                )}
-              </div>
+        <Field label="Password" htmlFor="password" error={errors.password?.message}>
+          <PasswordInput
+            id="password"
+            icon={LockKeyhole}
+            autoComplete="current-password"
+            placeholder="Minimal 6 karakter"
+            aria-invalid={!!errors.password}
+            {...register("password", {
+              required: "Password wajib diisi",
+              minLength: { value: 6, message: "Minimal 6 karakter" },
+            })}
+          />
+        </Field>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="********"
-                  {...register("password", {
-                    required: "Password wajib diisi",
-                    minLength: {
-                      value: 6,
-                      message: "Minimal 6 karakter",
-                    },
-                  })}
-                />
-                {errors.password && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.password.message}
-                  </p>
-                )}
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full cursor-pointer bg-linear-to-r from-emerald-600 to-teal-600 hover:shadow-lg hover:scale-105 transition-all duration-200"
-                disabled={loginMutation.isPending}
-              >
-                {loginMutation.isPending ? "Memuat..." : "Masuk"}
-              </Button>
-            </form>
-          </CardContent>
-
-          <CardAction className="flex w-full justify-center pb-4 items-center">
-            <Link to="/register" className="text-sm hover:underline">
-              Belum punya akun? Daftar di sini
-            </Link>
-          </CardAction>
-        </Card>
-      </div>
-    </Fragment>
+        <Button type="submit" size="lg" className="w-full" disabled={loginMutation.isPending}>
+          {loginMutation.isPending ? <Loader2 className="animate-spin" /> : <LogIn />}
+          {loginMutation.isPending ? "Memproses…" : "Masuk"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
-};
-
-export default LoginPage;
+}

@@ -15,7 +15,6 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
       </Route>
       <Route element={<PrivateRoute />}>
-        {/* Tambahkan route yang membutuhkan autentikasi di sini */}
         <Route path="/:id_barang/confirmation" element={<ConfirmationPage />} />
       </Route>
     </Routes>

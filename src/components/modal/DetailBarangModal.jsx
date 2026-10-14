@@ -1,390 +1,265 @@
-import { getImageUrl } from "@/hooks/getImageUrl";
-import { useFormatDate } from "@/hooks/useFormatDate";
-import api from "@/lib/axios";
-import {
-  X,
-  MapPin,
-  Calendar,
-  Shield,
-  User,
-  FileText,
-  Phone,
-  ImageOff,
-  Check,
-  Camera,
-  Hash,
-  GraduationCap,
-  StickyNote,
-} from "lucide-react";
-import React, { useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "motion/react";
+import {
+  CalendarClock,
+  CheckCheck,
+  ClipboardCheck,
+  HandHeart,
+  ImageOff,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { jwtDecode } from "jwt-decode";
+import api from "@/lib/axios";
+import { useAuth } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
+import { optimizeImage, parsePhotos } from "@/lib/image";
+import { APP_NAME } from "@/lib/constants";
+import { useFormatDate } from "@/hooks/useFormatDate";
+import { cn } from "@/lib/utils";
+import Modal, { ModalCloseButton } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import StatusBadge from "@/components/barang/StatusBadge";
 
-const DetailBarangModal = ({ selectedItem, onClose }) => {
-  const { formatTimeAgo } = useFormatDate();
+// wa.me butuh format internasional: 0812... -> 62812...
+const toWhatsAppNumber = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  if (digits.startsWith("8")) return `62${digits}`;
+  return digits;
+};
+
+export default function DetailBarangModal({ item, onClose }) {
+  const { formatDateTime, formatTimeAgo } = useFormatDate();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [activePhoto, setActivePhoto] = useState(0);
 
-  const token = localStorage.getItem("token");
-  const user = token && jwtDecode(token);
+  const photos = parsePhotos(item.foto);
+  const buktiPhotos = parsePhotos(item.pengambilan?.foto_bukti);
+  const isLost = item.tipe_laporan === "hilang";
+  const isOwner = user && String(user.id) === String(item.pelapor?.id);
 
-  useEffect(() => {
-    if (selectedItem) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "auto";
-    }
-    return () => {
-      document.body.style.overflow = "auto";
-    };
-  }, [selectedItem]);
-
-  const fotoBuktiList = useMemo(() => {
-    const raw = selectedItem?.pengambilan?.foto_bukti;
-
-    if (!raw) return [];
-    if (Array.isArray(raw)) return raw;
-
-    if (typeof raw === "string") {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-        return [raw];
-        // eslint-disable-next-line no-unused-vars
-      } catch (e) {
-        return [raw];
-      }
-    }
-    return [];
-  }, [selectedItem]);
-
-  if (!selectedItem) return null;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    try {
-      const data = {
-        id_barang: selectedItem.id_barang,
-        status: "sudah selesai",
-        tipe_laporan: "selesai",
-      };
-
-      const response = await api.post(`/barang/ditemukan`, data);
-
+  const markFoundMutation = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post("/barang/ditemukan", {
+          id_barang: item.id_barang,
+          status: "sudah selesai",
+          tipe_laporan: "selesai",
+        })
+      ).data,
+    onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["barang-list"] });
-
-      toast.success(response.data.status, {
-        description: response.data.message,
-        richColors: true,
-        position: "top-center",
-      });
-
+      toast.success("Laporan ditandai selesai", { description: data.message });
       onClose();
-    } catch (error) {
-      if (error.status == 403) {
-        toast.warning("Akses ditolak!", {
-          description: "Kamu tidak berhak mengkonfirmasi barang ini!",
-          position: "top-center",
-          richColors: true,
-        });
-      } else {
-        toast.error(error.message, {
-          description: error.response.data.message,
-          position: "top-center",
-          richColors: true,
-        });
-      }
-    }
-  };
+    },
+    onError: (error) => toast.error(getErrorMessage(error, "Gagal menandai barang")),
+  });
 
-  const getThumbnailUrl = (url) => {
-    const validUrl = getImageUrl(url);
+  const waNumber = !isOwner && toWhatsAppNumber(item.pelapor?.no_hp);
+  const waText = `Halo ${item.pelapor?.nama || ""}, saya ingin bertanya tentang barang "${item.judul_laporan}" yang diposting di ${APP_NAME}.`;
+  const canMarkFound = isLost && isOwner;
+  const canConfirmPickup = item.tipe_laporan === "ditemukan" && user?.role === "Satpam";
+  const hasActions = waNumber || canMarkFound || canConfirmPickup;
 
-    if (validUrl.includes("cloudinary.com")) {
-      return validUrl.replace("/upload/", "/upload/w_300,q_auto,f_auto/");
-    }
-
-    return validUrl;
-  };
-
-  return createPortal(
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-100 p-4 animate-in fade-in duration-200">
-      <div className="absolute inset-0" onClick={onClose} />
-
-      <div className="bg-white rounded-3xl w-full max-w-6xl max-h-[90vh] md:h-[85vh] shadow-2xl flex flex-col md:flex-row relative z-10 overflow-hidden">
-        <button
-          onClick={onClose}
-          className="absolute cursor-pointer top-4 right-4 z-50 bg-white/80 hover:bg-white text-gray-800 p-2 rounded-full shadow-sm backdrop-blur-sm transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-        <div className="w-full md:w-1/2 h-56 md:h-full bg-gray-100 shrink-0 relative">
-          {selectedItem.foto && selectedItem.foto.length > 0 ? (
-            <img
-              src={getImageUrl(selectedItem.foto)}
-              alt={selectedItem.judul_laporan}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-200">
-              <ImageOff className="w-16 h-16 mb-2" />
-              <span className="text-sm">Tidak ada gambar</span>
-            </div>
-          )}
-
-          {/* Badge Status */}
-          <div className="absolute top-4 left-4 flex gap-2 z-10">
-            <span
-              className={`px-4 py-1.5 rounded-full text-xs font-bold shadow-lg backdrop-blur-md ${
-                selectedItem.tipe_laporan === "hilang"
-                  ? "bg-red-500/90 text-white"
-                  : "bg-emerald-500/90 text-white"
-              }`}
-            >
-              {selectedItem.tipe_laporan === "hilang" ? "DICARI" : "DITEMUKAN"}
-            </span>
-          </div>
-        </div>
-
-        <div className="w-full md:w-1/2 flex flex-col flex-1 md:h-full overflow-hidden bg-white">
-          <div className="grow overflow-y-auto p-5 md:p-8 custom-scrollbar">
-            <div className="mb-6 mt-2">
-              <div className="flex items-center text-purple-600 text-sm font-semibold mb-2 gap-2">
-                <span
-                  className={`px-2 py-0.5 uppercase font-semibold rounded-md ${
-                    selectedItem.status === "sudah selesai"
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}
-                >
-                  {selectedItem.status || "Barang Umum"}
-                </span>
-                <span className="text-gray-400 font-normal text-xs md:text-sm">
-                  Postingan dibuat {formatTimeAgo(selectedItem.created_at)}
+  return (
+    <Modal onClose={onClose} labelledBy="detail-title" className="sm:max-w-4xl">
+      <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+        {/* Foto */}
+        <div className="relative shrink-0 bg-muted md:min-h-[30rem] md:w-[45%]">
+          {/* Di desktop foto mengisi penuh tinggi kolom */}
+          <div className="aspect-[4/3] md:absolute md:inset-0 md:aspect-auto">
+            {photos.length > 0 ? (
+              <motion.img
+                key={photos[activePhoto]}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                src={optimizeImage(photos[activePhoto], 1200)}
+                alt={item.judul_laporan}
+                className="size-full object-cover"
+              />
+            ) : (
+              <div className="grid size-full min-h-56 place-items-center text-muted-foreground">
+                <span className="flex flex-col items-center gap-2 text-sm">
+                  <ImageOff className="size-10" /> Tidak ada foto
                 </span>
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight uppercase">
-                {selectedItem.judul_laporan}
+            )}
+          </div>
+          <StatusBadge item={item} className="absolute left-4 top-4" />
+          <ModalCloseButton onClick={onClose} className="absolute right-4 top-4" />
+
+          {photos.length > 1 && (
+            <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-linear-to-t from-black/50 to-transparent p-3">
+              {photos.map((url, index) => (
+                <button
+                  key={url}
+                  onClick={() => setActivePhoto(index)}
+                  aria-label={`Foto ${index + 1}`}
+                  className={cn(
+                    "size-12 cursor-pointer overflow-hidden rounded-lg ring-2 transition",
+                    index === activePhoto ? "ring-white" : "opacity-70 ring-transparent hover:opacity-100"
+                  )}
+                >
+                  <img src={optimizeImage(url, 120)} alt="" className="size-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Detail */}
+        <div className="scrollbar-thin flex min-h-0 flex-1 flex-col md:overflow-y-auto">
+          <div className="flex-1 space-y-6 p-5 sm:p-7">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">
+                Dilaporkan {formatTimeAgo(item.created_at).toLowerCase()}
+              </p>
+              <h2 id="detail-title" className="mt-1 text-2xl font-extrabold tracking-tight sm:text-3xl">
+                {item.judul_laporan}
               </h2>
             </div>
 
-            <div className="space-y-3 mb-6">
-              <InfoItem
-                icon={<MapPin className="w-5 h-5" />}
-                color="purple"
-                label="Lokasi Terakhir"
-                value={selectedItem.lokasi}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <InfoTile icon={MapPin} label="Lokasi" value={item.lokasi || "-"} />
+              <InfoTile
+                icon={CalendarClock}
+                label={isLost ? "Waktu hilang" : "Waktu ditemukan"}
+                value={formatDateTime(item.tanggal)}
               />
-              <InfoItem
-                icon={<Calendar className="w-5 h-5 " />}
-                color="purple"
-                label="Tanggal Kejadian"
-                value={formatTimeAgo(selectedItem.tanggal)}
+              <InfoTile
+                icon={UserRound}
+                label="Pelapor"
+                value={item.pelapor?.nama || "Anonim"}
+                sub={item.pelapor?.npm}
               />
-              <InfoItem
-                icon={<User className="w-5 h-5" />}
-                color="purple"
-                label="Dilaporkan Oleh"
-                value={selectedItem.pelapor.nama || "Anonim"}
-                subValue={selectedItem.pelapor.npm}
-              />
-
-              {selectedItem?.satpam?.nama && (
-                <InfoItem
-                  icon={<Shield className="w-5 h-5" />}
-                  color="purple"
-                  label="Diamankan Oleh Satpam"
-                  value={selectedItem.satpam.nama}
-                />
+              {item.satpam?.nama && (
+                <InfoTile icon={ShieldCheck} label="Dititipkan ke satpam" value={item.satpam.nama} />
               )}
             </div>
 
-            {/* Deskripsi */}
-            <div className="pb-4">
-              <h3 className="font-bold text-gray-900 mb-2 flex items-center text-sm md:text-base">
-                <FileText className="w-4 h-4 mr-2 text-gray-400" />
-                Deskripsi Lengkap
-              </h3>
-              <div className="text-gray-600 text-sm leading-relaxed whitespace-pre-line bg-gray-50 p-4 rounded-xl border border-dashed border-gray-200">
-                {selectedItem.deskripsi || "Tidak ada deskripsi tambahan."}
-              </div>
+            <div>
+              <h3 className="text-sm font-bold">Deskripsi</h3>
+              <p className="mt-2 whitespace-pre-line rounded-2xl bg-muted/70 p-4 text-sm leading-relaxed text-muted-foreground">
+                {item.deskripsi || "Tidak ada deskripsi tambahan."}
+              </p>
             </div>
 
-            {selectedItem.pengambilan && (
-              <div className="mt-8">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center text-base md:text-lg border-b pb-2">
-                  Detail Pengambil Barang
+            {item.pengambilan && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:p-5">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-emerald-800">
+                  <HandHeart className="size-4" /> Sudah diambil pemiliknya
                 </h3>
+                <p className="mt-0.5 text-xs text-emerald-700/80">
+                  {formatDateTime(item.pengambilan.waktu)}
+                </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                      Identitas Penerima
-                    </h4>
+                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                  <PickupRow label="Nama" value={item.pengambilan.nama_pengambil} />
+                  <PickupRow label="NPM" value={item.pengambilan.npm_pengambil} />
+                  <PickupRow label="Program studi" value={item.pengambilan.prodi_pengambil} />
+                  <PickupRow label="No. HP" value={item.pengambilan.no_hp_pengambil} />
+                </dl>
 
-                    <InfoItem
-                      icon={<User className="w-5 h-5" />}
-                      color="purple"
-                      label="Nama Pengambil"
-                      value={selectedItem.pengambilan?.nama_pengambil}
-                    />
-                    <InfoItem
-                      icon={<Hash className="w-5 h-5" />}
-                      color="purple"
-                      label="NPM"
-                      value={selectedItem.pengambilan?.npm_pengambil}
-                    />
-                    <InfoItem
-                      icon={<GraduationCap className="w-5 h-5" />}
-                      color="purple"
-                      label="Program Studi"
-                      value={selectedItem.pengambilan?.prodi_pengambil}
-                    />
-                    <InfoItem
-                      icon={<Phone className="w-5 h-5" />}
-                      color="purple"
-                      label="No. Handphone"
-                      value={selectedItem.pengambilan?.no_hp_pengambil}
-                    />
-                  </div>
-
-                  <div className="space-y-6">
-                    {/* BAGIAN FOTO BUKTI */}
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                          <Camera className="w-4 h-4" /> Bukti Foto
-                        </h4>
-                        {/* Badge jumlah foto jika lebih dari 1 */}
-                        {fotoBuktiList.length > 1 && (
-                          <span className="text-xs font-medium bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                            {fotoBuktiList.length} Foto
-                          </span>
-                        )}
-                      </div>
-
-                      {/* LOGIC TAMPILAN FOTO */}
-                      {fotoBuktiList.length === 0 ? (
-                        // CASE 0: Tidak ada foto
-                        <div className="w-full sm:w-56 aspect-square flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-                          <ImageOff className="w-10 h-10 mb-2 opacity-50" />
-                          <span className="text-xs font-medium text-gray-500">
-                            Tidak ada foto
-                          </span>
-                        </div>
-                      ) : fotoBuktiList.length === 1 ? (
-                        // CASE 1: Satu Foto (Tampilan Besar)
-                        <div className="relative w-full sm:w-64 aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-sm group cursor-pointer bg-gray-100">
+                {buktiPhotos.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-emerald-800">Foto bukti</p>
+                    <div className="scrollbar-thin mt-2 flex gap-2 overflow-x-auto pb-1">
+                      {buktiPhotos.map((url, index) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="size-20 shrink-0 overflow-hidden rounded-xl ring-1 ring-emerald-200 transition hover:ring-2 hover:ring-emerald-500"
+                        >
                           <img
-                            src={getImageUrl(fotoBuktiList[0])}
-                            alt="Bukti 1"
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            src={optimizeImage(url, 200)}
+                            alt={`Bukti ${index + 1}`}
+                            loading="lazy"
+                            className="size-full object-cover"
                           />
-                        </div>
-                      ) : (
-                        // CASE MULTIPLE: Horizontal Scroll (Tampilan Gallery)
-                        <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar snap-x">
-                          {fotoBuktiList.map((foto, index) => (
-                            <div
-                              key={index}
-                              className="snap-start shrink-0 relative w-40 h-40 rounded-xl overflow-hidden border border-gray-200 shadow-sm group cursor-pointer bg-gray-100"
-                            >
-                              <img
-                                src={getThumbnailUrl(foto)}
-                                alt={`Bukti ${index + 1}`}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                              />
-
-                              {/* Indikator angka */}
-                              <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-md backdrop-blur-sm">
-                                {index + 1}/{fotoBuktiList.length}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* BAGIAN CATATAN */}
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                        <StickyNote className="w-4 h-4" /> Catatan
-                      </h4>
-                      <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-3 text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto">
-                        {selectedItem.pengambilan?.catatan || (
-                          <span className="text-gray-400 italic">
-                            Tidak ada catatan tambahan.
-                          </span>
-                        )}
-                      </div>
+                        </a>
+                      ))}
                     </div>
                   </div>
-                </div>
+                )}
+
+                {item.pengambilan.catatan && (
+                  <p className="mt-4 rounded-xl bg-white/80 p-3 text-sm text-muted-foreground">
+                    {item.pengambilan.catatan}
+                  </p>
+                )}
               </div>
             )}
           </div>
 
-          <div className="p-4 flex gap-3 md:p-6 border-t border-gray-100 bg-white shrink-0 z-20">
-            <Link
-              to={`https://api.whatsapp.com/send?phone=${selectedItem.pelapor.no_hp}&text=Halo ${selectedItem.pelapor.nama} saya ingin bertanya lebih lanjut perihal barang ${selectedItem.judul_laporan} yang di posting di Lost And Found KEMA UKRI.`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-linear-to-r from-gray-600 to-stone-600 text-white px-2 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center text-xs"
-            >
-              <Phone className="w-5 h-5 mr-2" />
-              Hubungi Pelapor via WhatsApp
-            </Link>
-            {selectedItem.tipe_laporan === "hilang" && (
-              <Link
-                onClick={handleSubmit}
-                className="w-full bg-linear-to-r from-gray-600 to-stone-600 text-white px-2 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center text-xs"
-              >
-                <Check className="w-5 h-5 mr-2" />
-                Konfirmasi sudah ditemukan
-              </Link>
-            )}
-            {selectedItem.tipe_laporan === "ditemukan" &&
-            user?.role === "Satpam" ? (
-              <Link
-                to={`${selectedItem.id_barang}/confirmation`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full bg-linear-to-r  from-gray-600 to-stone-600 text-white px-2 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center text-xs"
-              >
-                <Check className="w-5 h-5 mr-2" />
-                Konfirmasi ambil barang
-              </Link>
-            ) : (
-              <></>
-            )}
-          </div>
+          {hasActions && (
+            <div className="sticky bottom-0 flex flex-col gap-2 border-t bg-card/95 p-4 backdrop-blur sm:flex-row sm:p-5">
+              {waNumber && (
+                <Button asChild size="lg" className="flex-1 bg-emerald-700 text-white hover:bg-emerald-800">
+                  <a
+                    href={`https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <MessageCircle /> Hubungi via WhatsApp
+                  </a>
+                </Button>
+              )}
+              {canMarkFound && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => markFoundMutation.mutate()}
+                  disabled={markFoundMutation.isPending}
+                >
+                  {markFoundMutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCheck />}
+                  Tandai sudah ditemukan
+                </Button>
+              )}
+              {canConfirmPickup && (
+                <Button asChild size="lg" variant="outline" className="flex-1">
+                  <Link to={`/${item.id_barang}/confirmation`}>
+                    <ClipboardCheck /> Konfirmasi pengambilan
+                  </Link>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
-    </div>,
-    document.body
+    </Modal>
   );
-};
+}
 
-const InfoItem = ({ icon, color, label, value, subValue }) => (
-  <div className="flex items-start p-3 rounded-xl bg-white border border-gray-100 shadow-sm">
-    <div
-      className={`p-2 bg-${color}-50 rounded-lg mr-3 text-${color}-600 shrink-0`}
-    >
-      {icon}
+function InfoTile({ icon: Icon, label, value, sub }) {
+  return (
+    <div className="flex min-w-0 items-start gap-3 rounded-2xl border p-3">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm font-semibold break-words">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+      </div>
     </div>
+  );
+}
+
+function PickupRow({ label, value }) {
+  return (
     <div>
-      <p className="text-xs text-gray-400 font-medium mb-0.5">{label}</p>
-      <p className="text-gray-900 font-semibold text-sm line-clamp-1">
-        {value}
-      </p>
-      {subValue && <p className="text-xs text-gray-500 mt-0.5">{subValue}</p>}
+      <dt className="text-xs text-emerald-700/80">{label}</dt>
+      <dd className="font-semibold text-emerald-950">{value || "-"}</dd>
     </div>
-  </div>
-);
-
-export default DetailBarangModal;
+  );
+}

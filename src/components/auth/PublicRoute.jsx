@@ -1,10 +1,10 @@
-import React from "react";
 import { Navigate, Outlet } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
 
 const PublicRoute = () => {
-  const token = localStorage.getItem("token");
+  const { isLoggedIn } = useAuth();
 
-  if (token) {
+  if (isLoggedIn) {
     return <Navigate to="/" replace />;
   }
 

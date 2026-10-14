@@ -1,22 +1,25 @@
 import { useForm } from "react-hook-form";
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import api from "@/lib/axios";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Fragment } from "react";
-import MetaData from "@/components/metadata";
+  GraduationCap,
+  IdCard,
+  Loader2,
+  LockKeyhole,
+  Mail,
+  Phone,
+  UserPlus,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
+import api from "@/lib/axios";
+import { getErrorMessage } from "@/lib/errors";
+import AuthLayout from "@/components/layout/AuthLayout";
+import MetaData from "@/components/metadata";
+import { Button } from "@/components/ui/button";
+import { Field, IconInput, PasswordInput } from "@/components/form/Field";
 
-const RegisterPage = () => {
+export default function RegisterPage() {
   const navigate = useNavigate();
 
   const {
@@ -26,192 +29,134 @@ const RegisterPage = () => {
   } = useForm();
 
   const registerMutation = useMutation({
-    mutationFn: async (data) => {
-      const response = await api.post("/register", data);
-
-      return response.data;
-    },
-    onSuccess: (data) => {
-      toast.success("Berhasil daftar akun!", {
-        description: data.message,
-        position: "top-center",
-        richColors: true,
-      });
+    mutationFn: async (data) => (await api.post("/register", data)).data,
+    onSuccess: () => {
+      toast.success("Akun berhasil dibuat", { description: "Silakan masuk dengan akun barumu." });
       navigate("/login");
     },
-    onError: (error) => {
-      toast.error(error.statusText, {
-        description: error.response.data.message,
-        position: "top-center",
-        richColors: true,
-      });
-    },
+    onError: (error) => toast.error("Gagal mendaftar", { description: getErrorMessage(error) }),
   });
 
-  const onSubmit = (data) => {
-    registerMutation.mutate(data);
-  };
-
   return (
-    <Fragment>
-      <MetaData
-        title="Register"
-        description="Halaman registrasi untuk Lost & Found KEMA
-      UKRI"
-        image=""
-        url=""
-      />
-      <div className="flex h-screen items-center justify-center bg-gray-100 p-4 font-sora">
-        {/* Menggunakan Card Shadcn */}
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-2xl text-center">DAFTAR AKUN</CardTitle>
-            <CardDescription className="text-center">
-              <h3>Silahkan masukan data diri anda</h3>
-              <span>(Gunakan NIK jika anda bukan mahasiswa)</span>
-            </CardDescription>
-          </CardHeader>
+    <AuthLayout
+      wide
+      title="Buat akun"
+      subtitle="Daftar untuk mulai melaporkan barang hilang atau barang temuan."
+      footer={
+        <>
+          Sudah punya akun?{" "}
+          <Link to="/login" className="font-semibold text-primary hover:underline">
+            Masuk
+          </Link>
+        </>
+      }
+    >
+      <MetaData title="Daftar" />
 
-          <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              {/* Input NPM */}
-              <div className="space-y-2">
-                <Label htmlFor="npm">NPM</Label>
-                <Input
-                  id="npm"
-                  type="text"
-                  placeholder="20210xxxxxx"
-                  {...register("npm", {
-                    required: "NPM wajib diisi",
-                    pattern: {
-                      value: /^\d+$/,
-                      message: "Format NPM salah",
-                    },
-                  })}
-                />
-                {errors.npm && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.npm.message}
-                  </p>
-                )}
-              </div>
+      <form
+        onSubmit={handleSubmit((data) => registerMutation.mutate(data))}
+        className="grid gap-5 sm:grid-cols-2"
+      >
+        <Field
+          label="NPM"
+          htmlFor="npm"
+          error={errors.npm?.message}
+          hint="Pakai NIK kalau kamu bukan mahasiswa."
+        >
+          <IconInput
+            id="npm"
+            icon={IdCard}
+            inputMode="numeric"
+            placeholder="20210xxxxxx"
+            aria-invalid={!!errors.npm}
+            {...register("npm", {
+              required: "NPM wajib diisi",
+              pattern: { value: /^\d+$/, message: "NPM hanya boleh angka" },
+            })}
+          />
+        </Field>
 
-              {/* Input Nama Lengkap */}
-              <div className="space-y-2">
-                <Label htmlFor="nama_lengkap">Nama Lengkap</Label>
-                <Input
-                  id="nama_lengkap"
-                  type="text"
-                  placeholder="Nama Lengkap"
-                  {...register("nama_lengkap", {
-                    required: "Nama Lengkap wajib diisi",
-                  })}
-                />
-                {errors.nama_lengkap && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.nama_lengkap.message}
-                  </p>
-                )}
-              </div>
+        <Field label="Nama lengkap" htmlFor="nama_lengkap" error={errors.nama_lengkap?.message}>
+          <IconInput
+            id="nama_lengkap"
+            icon={UserRound}
+            autoComplete="name"
+            placeholder="Nama lengkap"
+            aria-invalid={!!errors.nama_lengkap}
+            {...register("nama_lengkap", { required: "Nama lengkap wajib diisi" })}
+          />
+        </Field>
 
-              {/* Input Email */}
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="nama@contoh.com"
-                  // Menggunakan props register biasa karena tanpa Zod wrapper
-                  {...register("email", {
-                    required: "Email wajib diisi",
-                    pattern: {
-                      value: /^\S+@\S+$/i,
-                      message: "Format email salah",
-                    },
-                  })}
-                />
-                {errors.email && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.email.message}
-                  </p>
-                )}
-              </div>
+        <Field label="Email" htmlFor="email" error={errors.email?.message} className="sm:col-span-2">
+          <IconInput
+            id="email"
+            icon={Mail}
+            type="email"
+            autoComplete="email"
+            placeholder="nama@email.com"
+            aria-invalid={!!errors.email}
+            {...register("email", {
+              required: "Email wajib diisi",
+              pattern: { value: /^\S+@\S+$/i, message: "Format email salah" },
+            })}
+          />
+        </Field>
 
-              {/* Input Password */}
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="******"
-                  {...register("password", {
-                    required: "Password wajib diisi",
-                    minLength: {
-                      value: 6,
-                      message: "Minimal 6 karakter",
-                    },
-                  })}
-                />
-                {errors.password && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.password.message}
-                  </p>
-                )}
-              </div>
+        <Field
+          label="Password"
+          htmlFor="password"
+          error={errors.password?.message}
+          className="sm:col-span-2"
+        >
+          <PasswordInput
+            id="password"
+            icon={LockKeyhole}
+            autoComplete="new-password"
+            placeholder="Minimal 6 karakter"
+            aria-invalid={!!errors.password}
+            {...register("password", {
+              required: "Password wajib diisi",
+              minLength: { value: 6, message: "Minimal 6 karakter" },
+            })}
+          />
+        </Field>
 
-              {/* Input Program Studi */}
-              <div className="space-y-2">
-                <Label htmlFor="program_studi">Program Studi</Label>
-                <Input
-                  id="program_studi"
-                  type="text"
-                  placeholder="Program Studi"
-                  {...register("program_studi", {
-                    required: "Program Studi wajib diisi",
-                  })}
-                />
-                {errors.program_studi && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.program_studi.message}
-                  </p>
-                )}
-              </div>
+        <Field label="Program studi" htmlFor="program_studi" error={errors.program_studi?.message}>
+          <IconInput
+            id="program_studi"
+            icon={GraduationCap}
+            placeholder="Teknik Informatika"
+            aria-invalid={!!errors.program_studi}
+            {...register("program_studi", { required: "Program studi wajib diisi" })}
+          />
+        </Field>
 
-              {/* Input No Whatsapp */}
-              <div className="space-y-2">
-                <Label htmlFor="no_hp">No Whatsapp</Label>
-                <Input
-                  id="no_hp"
-                  type="text"
-                  placeholder="08123456789"
-                  {...register("no_hp", {
-                    required: "No Whatsapp wajib diisi",
-                    pattern: {
-                      value: /^\d+$/,
-                      message: "Format No Whatsapp salah",
-                    },
-                  })}
-                />
-                {errors.no_hp && (
-                  <p className="text-red-500 text-xs font-medium">
-                    {errors.no_hp.message}
-                  </p>
-                )}
-              </div>
+        <Field label="No. WhatsApp" htmlFor="no_hp" error={errors.no_hp?.message}>
+          <IconInput
+            id="no_hp"
+            icon={Phone}
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            placeholder="08123456789"
+            aria-invalid={!!errors.no_hp}
+            {...register("no_hp", {
+              required: "No. WhatsApp wajib diisi",
+              pattern: { value: /^\d+$/, message: "Hanya boleh angka" },
+            })}
+          />
+        </Field>
 
-              <Button
-                type="submit"
-                className="w-full cursor-pointer bg-linear-to-r from-emerald-600 to-teal-600 hover:shadow-lg hover:scale-105 transition-all duration-200"
-                disabled={registerMutation.isPending}
-              >
-                {registerMutation.isPending ? "Memuat..." : "Daftar"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </Fragment>
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full sm:col-span-2"
+          disabled={registerMutation.isPending}
+        >
+          {registerMutation.isPending ? <Loader2 className="animate-spin" /> : <UserPlus />}
+          {registerMutation.isPending ? "Mendaftarkan…" : "Daftar"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
-};
-
-export default RegisterPage;
+}

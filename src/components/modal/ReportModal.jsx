@@ -1,401 +1,283 @@
-import React, { useState } from "react";
-import { createPortal } from "react-dom";
-import {
-  X,
-  Upload,
-  MapPin,
-  Calendar,
-  FileText,
-  Loader2,
-  User,
-} from "lucide-react";
-import api from "@/lib/axios";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  CalendarClock,
+  ChevronDown,
+  HandHeart,
+  Loader2,
+  MapPin,
+  PackageSearch,
+  Send,
+  ShieldCheck,
+  Tag,
+} from "lucide-react";
+import { toast } from "sonner";
+import api from "@/lib/axios";
+import { setToken } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
+import { releasePhotos, uploadPhotos } from "@/lib/upload";
+import { cn } from "@/lib/utils";
+import Modal, { ModalCloseButton } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Field, IconInput } from "@/components/form/Field";
+import PhotoPicker from "@/components/form/PhotoPicker";
 
-export default function ReportModal({ isOpen, onClose, dataSatpam }) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
+const REPORT_TYPES = [
+  {
+    id: "hilang",
+    title: "Kehilangan barang",
+    description: "Barang saya hilang",
+    icon: PackageSearch,
+    active: "text-rose-700",
+    ring: "border-rose-400 bg-rose-50",
+  },
+  {
+    id: "ditemukan",
+    title: "Menemukan barang",
+    description: "Saya menemukan barang",
+    icon: HandHeart,
+    active: "text-emerald-700",
+    ring: "border-emerald-400 bg-emerald-50",
+  },
+];
+
+// Nilai max untuk input datetime-local (waktu lokal, format YYYY-MM-DDTHH:mm)
+const nowLocal = () => {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+};
+
+export default function ReportModal({ onClose, dataSatpam = [] }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const [reportType, setReportType] = useState("hilang");
+  const [photos, setPhotos] = useState([]);
+  const [form, setForm] = useState({
     judul_laporan: "",
     lokasi: "",
     tanggal: "",
     deskripsi: "",
-    foto: null,
-    fotoPreview: null,
-    tipe_laporan: "",
     id_satpam: "",
   });
-  const navigate = useNavigate();
-  const [reportType, setReportType] = useState("hilang");
-  const queryClient = useQueryClient();
+  const [maxDate] = useState(nowLocal);
+  const [phase, setPhase] = useState(null); // "upload" | "save" | null
+  const isSubmitting = phase !== null;
+  const isLost = reportType === "hilang";
 
-  if (!isOpen) return null;
+  const update = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.warning("Ukuran file maksimal 5MB!");
-        return;
-      }
-
-      setFormData({
-        ...formData,
-        foto: file,
-        fotoPreview: URL.createObjectURL(file),
-      });
-    }
+  const close = () => {
+    if (isSubmitting) return;
+    releasePhotos(photos);
+    onClose();
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    if (photos.length === 0) {
+      toast.error("Tambahkan foto barang dulu.");
+      return;
+    }
 
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append("tipe_laporan", reportType);
-      formDataToSend.append("judul_laporan", formData.judul_laporan);
-      formDataToSend.append("lokasi", formData.lokasi);
-      formDataToSend.append("tanggal", formData.tanggal);
-      formDataToSend.append("deskripsi", formData.deskripsi);
+      setPhase("upload");
+      const foto = await uploadPhotos(
+        photos.map((photo) => photo.file),
+        "barang"
+      );
 
-      if (formData.foto) {
-        formDataToSend.append("foto", formData.foto);
-      }
+      setPhase("save");
+      const payload = {
+        tipe_laporan: reportType,
+        judul_laporan: form.judul_laporan.trim(),
+        lokasi: form.lokasi.trim(),
+        tanggal: form.tanggal,
+        deskripsi: form.deskripsi.trim(),
+        foto,
+      };
+      if (!isLost && form.id_satpam) payload.id_satpam = form.id_satpam;
 
-      if (formData.id_satpam) {
-        formDataToSend.append("id_satpam", formData.id_satpam);
-      }
-
-      const response = await api.post("/barang", formDataToSend, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
+      const response = await api.post("/barang", payload);
       await queryClient.invalidateQueries({ queryKey: ["barang-list"] });
 
-      toast.success(response.statusText, {
-        description: response.data.message,
-        position: "top-center",
-        richColors: true,
-      });
+      toast.success("Laporan berhasil dibuat", { description: response.data.message });
+      releasePhotos(photos);
       onClose();
-
-      setFormData({
-        judul_laporan: "",
-        lokasi: "",
-        tanggal: "",
-        deskripsi: "",
-        foto: null,
-        fotoPreview: null,
-        tipe_laporan: "",
-        id_satpam: "",
-      });
-      setReportType("hilang");
     } catch (error) {
-      if (error.response && error.response.status === 403) {
-        toast(error.response.status, {
-          description: error.response.message,
-          position: "top-center",
-          richColors: true,
-        });
-        localStorage.removeItem("token");
+      if (error.response?.status === 403) {
+        toast.error("Sesi kamu sudah habis", { description: "Silakan masuk lagi." });
+        setToken(null);
         navigate("/login");
         return;
       }
-
-      toast(error.response.status, {
-        description: error.response.message,
-        position: "top-center",
-        richColors: true,
-      });
+      toast.error("Gagal mengirim laporan", { description: getErrorMessage(error) });
     } finally {
-      setIsSubmitting(false);
+      setPhase(null);
     }
   };
 
-  const closeModal = () => {
-    if (!isSubmitting) {
-      onClose();
-      setFormData({
-        judul_laporan: "",
-        lokasi: "",
-        tanggal: "",
-        deskripsi: "",
-        foto: null,
-        fotoPreview: null,
-        id_satpam: "",
-      });
-      setReportType("hilang");
-    }
-  };
-
-  return createPortal(
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-100 p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[95vh] overflow-y-auto shadow-2xl my-8 animate-in fade-in zoom-in duration-300">
-        {/* Modal Header */}
-        <div className="sticky top-0 bg-linear-to-r from-stone-600 to-teal-600 px-6 sm:px-8 py-5 sm:py-6 rounded-t-3xl z-10">
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">
-                Laporkan Barang
-              </h2>
-              <p className="text-stone-100 text-xs sm:text-sm">
-                Bantu temukan pemiliknya atau temukan barangmu
-              </p>
-            </div>
-            <button
-              onClick={closeModal}
-              disabled={isSubmitting}
-              className="w-10 h-10 cursor-pointer bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-          </div>
+  return (
+    <Modal
+      onClose={close}
+      dismissible={!isSubmitting}
+      labelledBy="report-title"
+      className="sm:max-w-xl"
+    >
+      <div className="flex items-start justify-between gap-4 border-b px-5 py-4 sm:px-6">
+        <div>
+          <h2 id="report-title" className="text-lg font-extrabold tracking-tight">
+            Laporkan barang
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Isi sedetail mungkin supaya barangnya mudah dikenali.
+          </p>
         </div>
-
-        {/* Modal Content */}
-        <form onSubmit={handleSubmit} className="p-6 sm:p-8">
-          {/* Report Type Toggle */}
-          <div className="mb-6 sm:mb-8">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Jenis Laporan <span className="text-red-500">*</span>
-            </label>
-            <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <button
-                type="button"
-                onClick={() => setReportType("hilang")}
-                disabled={isSubmitting}
-                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
-                  reportType === "hilang"
-                    ? "border-red-500 bg-red-50 shadow-md scale-105"
-                    : "border-gray-200 hover:border-gray-300"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                <div className="text-2xl sm:text-3xl mb-2">🔍</div>
-                <div className="font-bold text-sm sm:text-base text-gray-900">
-                  Barang Hilang
-                </div>
-                <div className="text-[10px] sm:text-xs text-gray-600 mt-1">
-                  Saya kehilangan barang
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setReportType("ditemukan")}
-                disabled={isSubmitting}
-                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
-                  reportType === "ditemukan"
-                    ? "border-green-500 bg-green-50 shadow-md scale-105"
-                    : "border-gray-200 hover:border-gray-300"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                <div className="text-2xl sm:text-3xl mb-2">✨</div>
-                <div className="font-bold text-sm sm:text-base text-gray-900">
-                  Barang Ditemukan
-                </div>
-                <div className="text-[10px] sm:text-xs text-gray-600 mt-1">
-                  Saya menemukan barang
-                </div>
-              </button>
-            </div>
-          </div>
-          {/* Image Upload */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Foto Barang <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-                id="image-upload"
-                required
-                disabled={isSubmitting}
-              />
-              <label
-                htmlFor="image-upload"
-                className={`flex flex-col items-center justify-center w-full h-40 sm:h-48 border-2 border-dashed border-stone-300 rounded-xl cursor-pointer hover:border-stone-500 transition-colors bg-stone-50/50 overflow-hidden ${
-                  isSubmitting ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-              >
-                {formData.fotoPreview ? (
-                  <div className="relative w-full h-full group">
-                    <img
-                      src={formData.fotoPreview}
-                      alt="Preview"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <p className="text-white text-sm font-medium">
-                        Klik untuk ganti foto
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-stone-400 mb-3" />
-                    <p className="text-sm font-medium text-gray-700 px-4 text-center">
-                      Klik untuk upload foto
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      PNG, JPG maksimal 5MB
-                    </p>
-                  </>
-                )}
-              </label>
-            </div>
-          </div>
-          {/* Title */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Nama/Deskripsi Barang <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.judul_laporan}
-              onChange={(e) =>
-                setFormData({ ...formData, judul_laporan: e.target.value })
-              }
-              placeholder="Contoh: iPhone 13 Pro Max Biru"
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-stone-500 focus:outline-none transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-
-          {/* Location */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Lokasi <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                value={formData.lokasi}
-                onChange={(e) =>
-                  setFormData({ ...formData, lokasi: e.target.value })
-                }
-                placeholder={
-                  reportType === "hilang"
-                    ? "Terakhir terlihat di..."
-                    : "Ditemukan di..."
-                }
-                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-stone-500 focus:outline-none transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
-                required
-                disabled={isSubmitting}
-              />
-            </div>
-          </div>
-          {/* Date */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Tanggal {reportType === "hilang" ? "Hilang" : "Ditemukan"}{" "}
-              <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="datetime-local"
-                value={formData.tanggal}
-                onChange={(e) =>
-                  setFormData({ ...formData, tanggal: e.target.value })
-                }
-                max={new Date().toISOString().split("T")[0]}
-                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-stone-500 focus:outline-none transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
-                required
-                disabled={isSubmitting}
-              />
-            </div>
-          </div>
-          {/* Description */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Detail Tambahan
-            </label>
-            <div className="relative">
-              <FileText className="absolute left-4 top-4 text-gray-400 w-5 h-5" />
-              <textarea
-                value={formData.deskripsi}
-                onChange={(e) =>
-                  setFormData({ ...formData, deskripsi: e.target.value })
-                }
-                placeholder="Tolong ceritakan lebih detail tentang barang ini, bisa tentang kejadian, tempat terakhir, jam terakhir, dll..."
-                rows={4}
-                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-stone-500 focus:outline-none transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed resize-none"
-                disabled={isSubmitting}
-              ></textarea>
-            </div>
-          </div>
-          {/* Dititip Satpam */}
-          {reportType === "ditemukan" && (
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Dititip Ke Satpam
-              </label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 transform -translate-y-1/2 text-stone-500 w-5 h-5" />
-                <select
-                  name="id_satpam"
-                  id="id_satpam"
-                  key="id_satpam"
-                  onChange={(e) =>
-                    setFormData({ ...formData, id_satpam: e.target.value })
-                  }
-                  value={formData.id_satpam || ""}
-                  className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-stone-500 focus:outline-none transition-colors appearance-none bg-white disabled:bg-gray-100 disabled:cursor-not-allowed hover:border-stone-300"
-                  disabled={isSubmitting}
-                >
-                  <option value="" disabled>
-                    Pilih satpam yang akan dititipkan
-                  </option>
-                  {dataSatpam.map((satpam) => (
-                    <option key={satpam.id_satpam} value={satpam.id_satpam}>
-                      {satpam.nama_satpam}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                  <svg
-                    className="w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                    />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3 bg-linear-to-r from-stone-600 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                <span>Melaporkan...</span>
-              </>
-            ) : (
-              "Laporkan Barang"
-            )}
-          </button>
-        </form>
+        <ModalCloseButton onClick={close} disabled={isSubmitting} />
       </div>
-    </div>,
-    document.body
+
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <fieldset
+          disabled={isSubmitting}
+          className="scrollbar-thin min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6"
+        >
+          {/* Jenis laporan */}
+          <div role="radiogroup" aria-label="Jenis laporan" className="grid grid-cols-2 gap-3">
+            {REPORT_TYPES.map((type) => {
+              const active = reportType === type.id;
+              const Icon = type.icon;
+              return (
+                <button
+                  key={type.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setReportType(type.id)}
+                  className={cn(
+                    "relative flex cursor-pointer flex-col items-start gap-2 rounded-2xl border p-3.5 text-left transition-colors sm:p-4",
+                    active ? type.active : "text-muted-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="report-type"
+                      className={cn("absolute inset-0 rounded-2xl border-2", type.ring)}
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.45 }}
+                    />
+                  )}
+                  <Icon className="relative size-5" />
+                  <span className="relative">
+                    <span className="block text-sm font-bold text-foreground">{type.title}</span>
+                    <span className="block text-xs">{type.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <Field label="Foto barang" required>
+            <PhotoPicker photos={photos} onChange={setPhotos} max={1} disabled={isSubmitting} />
+          </Field>
+
+          <Field label="Nama barang" htmlFor="judul" required>
+            <IconInput
+              id="judul"
+              icon={Tag}
+              value={form.judul_laporan}
+              onChange={update("judul_laporan")}
+              placeholder="Contoh: Dompet kulit cokelat"
+              maxLength={255}
+              required
+            />
+          </Field>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Lokasi" htmlFor="lokasi" required>
+              <IconInput
+                id="lokasi"
+                icon={MapPin}
+                value={form.lokasi}
+                onChange={update("lokasi")}
+                placeholder={isLost ? "Terakhir terlihat di…" : "Ditemukan di…"}
+                maxLength={255}
+                required
+              />
+            </Field>
+            <Field label={isLost ? "Waktu hilang" : "Waktu ditemukan"} htmlFor="tanggal" required>
+              <IconInput
+                id="tanggal"
+                icon={CalendarClock}
+                type="datetime-local"
+                value={form.tanggal}
+                onChange={update("tanggal")}
+                max={maxDate}
+                required
+              />
+            </Field>
+          </div>
+
+          <Field label="Detail tambahan" htmlFor="deskripsi">
+            <Textarea
+              id="deskripsi"
+              value={form.deskripsi}
+              onChange={update("deskripsi")}
+              rows={4}
+              className="resize-none"
+              placeholder="Ciri-ciri barang, isi di dalamnya, kronologi singkat, dll."
+            />
+          </Field>
+
+          <AnimatePresence initial={false}>
+            {!isLost && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <Field
+                  label="Dititipkan ke satpam"
+                  htmlFor="satpam"
+                  hint="Opsional, kalau barangnya sudah kamu titipkan ke pos satpam."
+                >
+                  <div className="relative">
+                    <ShieldCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <select
+                      id="satpam"
+                      value={form.id_satpam}
+                      onChange={update("id_satpam")}
+                      className="h-11 w-full cursor-pointer appearance-none rounded-xl border bg-card pl-10 pr-10 text-base shadow-xs outline-none transition focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
+                    >
+                      <option value="">Tidak dititipkan</option>
+                      {dataSatpam.map((satpam) => (
+                        <option key={satpam.satpam_id} value={satpam.satpam_id}>
+                          {satpam.nama_satpam}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                </Field>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </fieldset>
+
+        <div className="border-t bg-card p-4 sm:px-6">
+          <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
+            {phase === "upload"
+              ? "Mengunggah foto…"
+              : phase === "save"
+                ? "Menyimpan laporan…"
+                : "Kirim laporan"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

@@ -48,3 +48,6 @@ Thumbs.db
 
 # Testing
 coverage/
+
+# Paket upload ke cPanel (berisi .env)
+*.zip

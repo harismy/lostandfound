@@ -1,30 +1,18 @@
-import React from "react";
+import { APP_NAME, APP_URL } from "@/lib/constants";
 
-const MetaData = ({ title, description, url, image }) => {
+// React 19 otomatis memindahkan <title>, <meta>, dan <link> ini ke <head>.
+// Meta description umum ada di index.html.
+export default function MetaData({ title, description }) {
+  const fullTitle = title ? `${title} · ${APP_NAME}` : APP_NAME;
+
   return (
-    <head>
-      {/* <!-- Primary Meta Tags --> */}
-      <title>{title}</title>
-      <meta name="title" content={title} />
-      <meta name="description" content={description} />
-      <link rel="canonical" href={url} />
-      <link rel="icon" href="../../assets/images/logo_l&f.jpg" />
-
-      {/* <!-- Open Graph / Facebook --> */}
+    <>
+      <title>{fullTitle}</title>
       <meta property="og:type" content="website" />
-      <meta property="og:url" content={url} />
-      <meta property="og:title" content={title} />
-      <meta property="og:description" content={description} />
-      <meta property="og:image" content={image} />
-
-      {/* <!-- X (Twitter) --> */}
-      <meta property="twitter:card" content="summary_large_image" />
-      <meta property="twitter:url" content={url} />
-      <meta property="twitter:title" content={title} />
-      <meta property="twitter:description" content={description} />
-      <meta property="twitter:image" content={image} />
-    </head>
+      <meta property="og:site_name" content={APP_NAME} />
+      <meta property="og:title" content={fullTitle} />
+      <meta property="og:url" content={APP_URL} />
+      {description && <meta property="og:description" content={description} />}
+    </>
   );
-};
-
-export default MetaData;
+}
